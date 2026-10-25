@@ -1,0 +1,57 @@
+name: zero-target-poc
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  poc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Solana CLI 2.1.21
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/v2.1.21/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+
+      - name: Build SBF programs (bridge + base_relayer)
+        working-directory: solana
+        run: cargo-build-sbf
+
+      - name: Test base_relayer zero_target_poc
+        if: always()
+        shell: bash
+        working-directory: solana
+        run: cargo test -p base_relayer zero_target_poc -- --nocapture --test-threads=1 2>&1 | tee /tmp/relayer.log
+
+      - name: Test bridge zero_target_poc
+        if: always()
+        shell: bash
+        working-directory: solana
+        run: cargo test -p bridge zero_target_poc -- --nocapture --test-threads=1 2>&1 | tee /tmp/bridge.log
+
+      - name: Summarize results
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### base_relayer"
+            echo '```'
+            grep -E "^test |test result|panicked|divide by zero|FAILED|failure:|UnauthorizedConfigUpdate" /tmp/relayer.log || echo "no matching lines (was the test module appended to pay_for_relay.rs?)"
+            echo '```'
+            echo "### bridge"
+            echo '```'
+            grep -E "^test |test result|panicked|divide by zero|FAILED|failure:|UnauthorizedConfigUpdate" /tmp/bridge.log || echo "no matching lines (was the test module appended to bridge_call.rs?)"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload full logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc-logs
+          path: /tmp/*.log
