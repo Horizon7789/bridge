@@ -135,3 +135,54 @@ mod tests {
         assert_eq!(final_receiver_balance - initial_receiver_balance, gas_limit);
     }
 }
+
+
+#[cfg(test)]
+mod zero_target_poc {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use crate::internal::{Eip1559, Eip1559Config};
+
+    fn state(target: u64, denominator: u64, window: u64, gas_used: u64) -> Eip1559 {
+        Eip1559 {
+            config: Eip1559Config { target, denominator, window_duration_seconds: window, minimum_base_fee: 1 },
+            current_base_fee: 100,
+            current_window_gas_used: gas_used,
+            window_start_time: 1_000,
+        }
+    }
+
+    fn panics<R>(f: impl FnOnce() -> R) -> bool {
+        catch_unwind(AssertUnwindSafe(f)).is_err()
+    }
+
+    #[test]
+    fn zero_target_expired_window_with_gas_panics() {
+        let mut s = state(0, 2, 1, 100_000);
+        assert!(panics(|| s.refresh_base_fee(1_010)));
+    }
+
+    #[test]
+    fn zero_window_duration_panics_even_without_expiry() {
+        let mut s = state(5_000_000, 2, 0, 0);
+        assert!(panics(|| s.refresh_base_fee(1_000)));
+    }
+
+    #[test]
+    fn zero_denominator_panics_when_gas_differs_from_target() {
+        let mut s = state(5_000_000, 0, 1, 100_000);
+        assert!(panics(|| s.refresh_base_fee(1_010)));
+    }
+
+    #[test]
+    fn valid_config_control_does_not_panic() {
+        let mut s = state(5_000_000, 2, 1, 100_000);
+        assert!(!panics(|| s.refresh_base_fee(1_010)));
+    }
+
+    #[test]
+    fn zero_target_zero_gas_control_does_not_panic() {
+        let mut s = state(0, 2, 1, 0);
+        assert!(!panics(|| s.refresh_base_fee(1_010)));
+    }
+}
