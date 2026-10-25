@@ -345,3 +345,42 @@ mod tests {
         );
     }
 }
+
+
+#[cfg(test)]
+mod zero_target_poc {
+    use super::*;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use crate::common::bridge::{Eip1559, Eip1559Config};
+
+    fn state(target: u64, gas_used: u64) -> Eip1559 {
+        Eip1559 {
+            config: Eip1559Config { target, denominator: 2, window_duration_seconds: 1, minimum_base_fee: 1 },
+            current_base_fee: 100,
+            current_window_gas_used: gas_used,
+            window_start_time: 1_000,
+        }
+    }
+
+    fn panics<R>(f: impl FnOnce() -> R) -> bool {
+        catch_unwind(AssertUnwindSafe(f)).is_err()
+    }
+
+    #[test]
+    fn zero_target_expired_window_with_gas_panics() {
+        let mut s = state(0, 100_000);
+        assert!(panics(|| s.refresh_base_fee(1_010)));
+    }
+
+    #[test]
+    fn positive_target_control_does_not_panic() {
+        let mut s = state(5_000_000, 100_000);
+        assert!(!panics(|| s.refresh_base_fee(1_010)));
+    }
+
+    #[test]
+    fn zero_target_zero_gas_expired_window_does_not_panic() {
+        let mut s = state(0, 0);
+        assert!(!panics(|| s.refresh_base_fee(1_010)));
+    }
+}
